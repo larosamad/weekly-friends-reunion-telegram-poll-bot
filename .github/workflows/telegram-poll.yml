@@ -3,7 +3,7 @@ name: Telegram weekly poll
 on:
   schedule:
     - cron: "0 10 * * 0"
-    - cron: "0 18 * * 0"
+    - cron: "0 8 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -21,7 +21,7 @@ jobs:
           HOUR=$(date -u +"%H")
           if [ "$HOUR" = "10" ]; then
             echo "MODE=start" >> $GITHUB_ENV
-          elif [ "$HOUR" = "18" ]; then
+          elif [ "$HOUR" = "08" ]; then
             echo "MODE=close" >> $GITHUB_ENV
           else
             echo "MODE=start" >> $GITHUB_ENV
