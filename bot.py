@@ -7,26 +7,51 @@ BOT_TOKEN = os.getenv("BOT_TOKEN").strip()
 CHAT_ID = int(os.getenv("CHAT_ID").strip())
 MODE = os.getenv("MODE").strip()
 
-DAYS = [
-    "Non posso", "Lunedì sera", "Martedì sera", "Mercoledì sera", "Giovedì sera", "Venerdì sera", "Sabato pomeriggio", "Sabato sera", "Domenica pomeriggio", "Domenica sera"
+OPTIONS = [
+    "Non posso",
+    "Lunedì sera",
+    "Martedì sera",
+    "Mercoledì sera",
+    "Giovedì sera",
+    "Venerdì sera",
+    "Sabato pomeriggio",
+    "Sabato sera",
+    "Domenica pomeriggio",
+    "Domenica sera",
 ]
 
 EXCLUDED_OPTION = "Non posso"
 POLL_FILE = "poll_info.json"
 
+FIRST_POLL_DURATION = 22 * 60 * 60
+TIEBREAK_POLL_DURATION = 8 * 60 * 60
 
-async def create_poll(bot, options, question):
+
+async def create_poll(bot, options, question, multiple_answers, duration, poll_type):
     message = await bot.send_poll(
         chat_id=CHAT_ID,
         question=question,
         options=[InputPollOption(text=option) for option in options],
         is_anonymous=True,
-        allows_multiple_answers=True,
-        open_period=22 * 60 * 60,
+        allows_multiple_answers=multiple_answers,
+        open_period=duration,
     )
 
     with open(POLL_FILE, "w") as file:
-        json.dump({"message_id": message.message_id}, file)
+        json.dump(
+            {
+                "message_id": message.message_id,
+                "poll_type": poll_type,
+            },
+            file,
+        )
+
+
+async def send_winner_message(bot, winner):
+    await bot.send_message(
+        chat_id=CHAT_ID,
+        text=f"Ciccini del {winner} palesatevi con la vostra id reaction e proponete eventuali film nei commenti",
+    )
 
 
 async def close_poll(bot):
@@ -50,21 +75,42 @@ async def close_poll(bot):
         if option.voter_count == max_votes
     ]
 
-    if len(tied_options) > 1:
-        await create_poll(
-            bot,
-            tied_options,
-            "Ex aequo: quale giorno scegliamo?"
-        )
+    return tied_options
 
 
 async def main():
     bot = Bot(BOT_TOKEN)
 
     if MODE == "start":
-        await create_poll(bot, DAYS, "Che giorno preferite?")
-    elif MODE == "close":
-        await close_poll(bot)
+        await create_poll(
+            bot,
+            OPTIONS,
+            "Che giorno preferite?",
+            multiple_answers=True,
+            duration=FIRST_POLL_DURATION,
+            poll_type="first",
+        )
+
+    elif MODE == "close_first":
+        tied_options = await close_poll(bot)
+
+        if len(tied_options) == 1:
+            await send_winner_message(bot, tied_options[0])
+        else:
+            await create_poll(
+                bot,
+                tied_options,
+                "Ex aequo: quale giorno scegliamo?",
+                multiple_answers=False,
+                duration=TIEBREAK_POLL_DURATION,
+                poll_type="tiebreak",
+            )
+
+    elif MODE == "close_tiebreak":
+        tied_options = await close_poll(bot)
+
+        if tied_options:
+            await send_winner_message(bot, tied_options[0])
 
 
 if __name__ == "__main__":
