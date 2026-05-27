@@ -8,8 +8,7 @@ CHAT_ID = int(os.getenv("CHAT_ID").strip())
 MODE = os.getenv("MODE").strip()
 
 DAYS = [
-    "Non posso", "Lunedì", "Martedì", "Mercoledì", "Giovedì",
-    "Venerdì", "Sabato", "Domenica"
+    "Non posso", "Lunedì sera", "Martedì sera", "Mercoledì sera", "Giovedì sera", "Venerdì sera", "Sabato pomeriggio", "Sabato sera", "Domenica pomeriggio", "Domenica sera"
 ]
 
 EXCLUDED_OPTION = "Non posso"
