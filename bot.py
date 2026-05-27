@@ -21,7 +21,7 @@ async def create_poll(bot, options, question):
         question=question,
         options=[InputPollOption(text=option) for option in options],
         is_anonymous=True,
-        allows_multiple_answers=False,
+        allows_multiple_answers=True,
         open_period=22 * 60 * 60,
     )
 
