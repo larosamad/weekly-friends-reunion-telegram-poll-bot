@@ -1,4 +1,8 @@
-DOMENICA ore 11:00 (ora italiana invernale) oppure 12:00 (ore italiana estiva)
+## Weekly Poll Flow
+
+```text
+DOMENICA ore 11:00 (ora italiana invernale)
+oppure 12:00 (ora italiana estiva)
 │
 ├─ Parte il primo sondaggio
 │  ├─ anonimo
@@ -13,18 +17,24 @@ LUNEDÌ ore 09:00-10:00
 ├─ "Non posso" viene ignorato
 │
 ├─ Se c’è un vincitore unico
-│  └─ il bot manda il messaggio:
-│     "Ciccini del {giorno vincitore} palesatevi con la vostra id reaction e proponete eventuali film nei commenti"
+│  └─ Il bot manda il messaggio:
+│
+│     "Ciccini del {giorno vincitore}
+│      palesatevi con la vostra id reaction
+│      e proponete eventuali film nei commenti"
 │
 └─ Se c’è ex aequo
-   └─ parte il secondo sondaggio
+   └─ Parte il secondo sondaggio
       ├─ anonimo
       ├─ scelta singola
       └─ durata: 8 ore
+
       ▼
-      LUNEDÌ ore 17:00-18:-00
+      LUNEDÌ ore 17:00-18:00
       │
       ├─ Il secondo sondaggio viene chiuso
       │
       └─ Il bot manda:
-         "Ciccini del {giorno vincitore} palesatevi..."
+         "Ciccini del {giorno vincitore}
+          palesatevi..."
+```
