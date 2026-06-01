@@ -45,13 +45,11 @@ async def create_poll(bot, options, question, multiple_answers, duration, poll_t
             file,
         )
 
-
 async def send_winner_message(bot, winner):
     await bot.send_message(
         chat_id=CHAT_ID,
         text=f"Ciccini del {winner} palesatevi con la vostra id reaction e proponete eventuali film nei commenti",
     )
-
 
 async def close_poll(bot):
     with open(POLL_FILE, "r") as file:
