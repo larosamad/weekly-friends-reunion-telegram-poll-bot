@@ -3,8 +3,8 @@ name: Telegram weekly poll
 on:
   schedule:
     - cron: "0 10 * * 0"
-    - cron: "0 8 * * 1"
-    - cron: "0 16 * * 1"
+    - cron: "55 7 * * 1"
+    - cron: "55 15 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -21,16 +21,20 @@ jobs:
         run: |
           DAY=$(date -u +"%u")
           HOUR=$(date -u +"%H")
+          MIN=$(date -u +"%M")
 
           if [ "$DAY" = "7" ] && [ "$HOUR" = "10" ]; then
             echo "MODE=start" >> $GITHUB_ENV
-          elif [ "$DAY" = "1" ] && [ "$HOUR" = "08" ]; then
+          elif [ "$DAY" = "1" ] && [ "$HOUR" = "07" ] && [ "$MIN" = "55" ]; then
             echo "MODE=close_first" >> $GITHUB_ENV
-          elif [ "$DAY" = "1" ] && [ "$HOUR" = "16" ]; then
+          elif [ "$DAY" = "1" ] && [ "$HOUR" = "15" ] && [ "$MIN" = "55" ]; then
             echo "MODE=close_tiebreak" >> $GITHUB_ENV
           else
             echo "MODE=start" >> $GITHUB_ENV
           fi
+
+      - name: Debug mode
+        run: echo "MODE=$MODE"
 
       - uses: actions/setup-python@v5
         with:

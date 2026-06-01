@@ -34,7 +34,6 @@ async def create_poll(bot, options, question, multiple_answers, duration, poll_t
         options=[InputPollOption(text=option) for option in options],
         is_anonymous=True,
         allows_multiple_answers=multiple_answers,
-        open_period=duration,
     )
 
     with open(POLL_FILE, "w") as file:
