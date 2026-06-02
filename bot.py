@@ -62,8 +62,11 @@ async def close_poll(bot):
 
     valid_options = [
         option for option in poll.options
-        if option.text != EXCLUDED_OPTION
+        if option.text != EXCLUDED_OPTION and option.voter_count > 0
     ]
+
+    if not valid_options:
+        return []
 
     max_votes = max(option.voter_count for option in valid_options)
 
@@ -93,7 +96,7 @@ async def main():
 
         if len(tied_options) == 1:
             await send_winner_message(bot, tied_options[0])
-        else:
+        elif len(tied_options) > 1:
             await create_poll(
                 bot,
                 tied_options,
@@ -106,7 +109,7 @@ async def main():
     elif MODE == "close_tiebreak":
         tied_options = await close_poll(bot)
 
-        if tied_options:
+        if len(tied_options) == 1:
             await send_winner_message(bot, tied_options[0])
 
 
