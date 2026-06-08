@@ -2,10 +2,32 @@ name: Telegram weekly poll
 
 on:
   schedule:
+    # Domenica — start
+    # UTC+1 inverno: 11:00 IT = 10:00 UTC
+    # UTC+2 estate:  12:00 IT = 10:00 UTC
     - cron: "0 10 * * 0"
-    - cron: "55 7 * * 1"
-    - cron: "55 15 * * 1"
+
+    # Lunedì mattina — close_first (22h dopo il start)
+    # UTC+1 inverno: 09:00 IT = 08:00 UTC
+    # UTC+2 estate:  10:00 IT = 08:00 UTC
+    - cron: "0 8 * * 1"
+
+    # Lunedì pomeriggio — close_tiebreak (8h dopo close_first)
+    # UTC+1 inverno: 17:00 IT = 16:00 UTC
+    # UTC+2 estate:  18:00 IT = 16:00 UTC
+    - cron: "0 16 * * 1"
+
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "MODE da eseguire"
+        required: true
+        default: "start"
+        type: choice
+        options:
+          - start
+          - close_first
+          - close_tiebreak
 
 permissions:
   contents: write
@@ -17,44 +39,55 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Decide mode
-        run: |
-          DAY=$(date -u +"%u")
-          HOUR=$(date -u +"%H")
-          MIN=$(date -u +"%M")
+      # Ripristina poll_info.json dalla cache (se esiste)
+      - name: Restore poll info
+        uses: actions/cache/restore@v4
+        with:
+          path: poll_info.json
+          key: poll-info
 
-          if [ "$DAY" = "7" ] && [ "$HOUR" = "10" ]; then
-            echo "MODE=start" >> $GITHUB_ENV
-          elif [ "$DAY" = "1" ] && [ "$HOUR" = "07" ] && [ "$MIN" = "55" ]; then
-            echo "MODE=close_first" >> $GITHUB_ENV
-          elif [ "$DAY" = "1" ] && [ "$HOUR" = "15" ] && [ "$MIN" = "55" ]; then
+      - name: Decide mode (schedule)
+        if: github.event_name == 'schedule'
+        run: |
+          IT_DAY=$(TZ="Europe/Rome" date +"%u")
+          IT_HH=$(TZ="Europe/Rome" date +"%H")
+          echo "Ora italiana: giorno=$IT_DAY ora=$IT_HH"
+
+          if   [ "$IT_DAY" = "7" ]; then
+            echo "MODE=start"        >> $GITHUB_ENV
+          elif [ "$IT_DAY" = "1" ] && [ "$IT_HH" -lt "12" ]; then
+            echo "MODE=close_first"  >> $GITHUB_ENV
+          elif [ "$IT_DAY" = "1" ] && [ "$IT_HH" -ge "12" ]; then
             echo "MODE=close_tiebreak" >> $GITHUB_ENV
-          else
-            echo "MODE=start" >> $GITHUB_ENV
           fi
 
-      - name: Debug mode
-        run: echo "MODE=$MODE"
+      - name: Set mode (manual)
+        if: github.event_name == 'workflow_dispatch'
+        run: echo "MODE=${{ inputs.mode }}" >> $GITHUB_ENV
+
+      - name: Debug
+        run: |
+          echo "MODE=$MODE"
+          echo "poll_info.json exists: $(test -f poll_info.json && cat poll_info.json || echo 'NO')"
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install python-telegram-bot
 
       - name: Run bot
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
-          MODE: ${{ env.MODE }}
+          CHAT_ID:   ${{ secrets.CHAT_ID }}
+          MODE:      ${{ env.MODE }}
         run: python bot.py
 
+      # Salva poll_info.json nella cache dopo start e close_first
       - name: Save poll info
-        if: ${{ env.MODE == 'start' || env.MODE == 'close_first' }}
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add poll_info.json
-          git commit -m "Save poll info" || echo "No changes"
-          git push
+        if: env.MODE == 'start' || env.MODE == 'close_first'
+        uses: actions/cache/save@v4
+        with:
+          path: poll_info.json
+          key: poll-info
