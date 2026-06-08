@@ -4,8 +4,8 @@ import asyncio
 from telegram import Bot, InputPollOption
 
 BOT_TOKEN = os.getenv("BOT_TOKEN").strip()
-CHAT_ID = int(os.getenv("CHAT_ID").strip())
-MODE = os.getenv("MODE").strip()
+CHAT_ID   = int(os.getenv("CHAT_ID").strip())
+MODE      = os.getenv("MODE").strip()
 
 OPTIONS = [
     "Non posso",
@@ -19,98 +19,88 @@ OPTIONS = [
     "Domenica pomeriggio",
     "Domenica sera",
 ]
-
 EXCLUDED_OPTION = "Non posso"
 POLL_FILE = "poll_info.json"
 
-FIRST_POLL_DURATION = 22 * 60 * 60
-TIEBREAK_POLL_DURATION = 8 * 60 * 60
 
-
-async def create_poll(bot, options, question, multiple_answers, duration, poll_type):
+async def create_poll(bot, options, question, multiple_answers, poll_type):
     message = await bot.send_poll(
         chat_id=CHAT_ID,
         question=question,
-        options=[InputPollOption(text=option) for option in options],
+        options=[InputPollOption(text=o) for o in options],
         is_anonymous=True,
         allows_multiple_answers=multiple_answers,
     )
+    with open(POLL_FILE, "w") as f:
+        json.dump({"message_id": message.message_id, "poll_type": poll_type}, f)
+    print(f"Sondaggio creato: poll_type={poll_type} message_id={message.message_id}")
 
-    with open(POLL_FILE, "w") as file:
-        json.dump(
-            {
-                "message_id": message.message_id,
-                "poll_type": poll_type,
-            },
-            file,
-        )
 
 async def send_winner_message(bot, winner):
     await bot.send_message(
         chat_id=CHAT_ID,
         text=f"Ciccini del {winner} palesatevi con la vostra id reaction e proponete eventuali film nei commenti",
     )
+    print(f"Messaggio vincitore inviato: {winner}")
+
 
 async def close_poll(bot):
-    with open(POLL_FILE, "r") as file:
-        data = json.load(file)
-
-    poll = await bot.stop_poll(
-        chat_id=CHAT_ID,
-        message_id=data["message_id"],
-    )
-
-    valid_options = [
-        option for option in poll.options
-        if option.text != EXCLUDED_OPTION and option.voter_count > 0
-    ]
-
-    if not valid_options:
+    if not os.path.exists(POLL_FILE):
+        print("ERRORE: poll_info.json non trovato")
         return []
 
-    max_votes = max(option.voter_count for option in valid_options)
+    with open(POLL_FILE) as f:
+        data = json.load(f)
 
-    tied_options = [
-        option.text for option in valid_options
-        if option.voter_count == max_votes
+    print(f"Chiudo sondaggio message_id={data['message_id']}")
+    poll = await bot.stop_poll(chat_id=CHAT_ID, message_id=data["message_id"])
+
+    valid = [
+        opt for opt in poll.options
+        if opt.text != EXCLUDED_OPTION and opt.voter_count > 0
     ]
+    print(f"Opzioni valide: {[(o.text, o.voter_count) for o in valid]}")
 
-    return tied_options
+    if not valid:
+        print("Nessun voto valido")
+        return []
+
+    max_votes = max(o.voter_count for o in valid)
+    tied = [o.text for o in valid if o.voter_count == max_votes]
+    print(f"In parità ({max_votes} voti): {tied}")
+    return tied
 
 
 async def main():
     bot = Bot(BOT_TOKEN)
 
     if MODE == "start":
-        await create_poll(
-            bot,
-            OPTIONS,
-            "Che giorno preferite?",
-            multiple_answers=True,
-            duration=FIRST_POLL_DURATION,
-            poll_type="first",
-        )
+        await create_poll(bot, OPTIONS, "Che giorno preferite?",
+                          multiple_answers=True, poll_type="first")
 
     elif MODE == "close_first":
-        tied_options = await close_poll(bot)
-
-        if len(tied_options) == 1:
-            await send_winner_message(bot, tied_options[0])
-        elif len(tied_options) > 1:
-            await create_poll(
-                bot,
-                tied_options,
-                "Ex aequo: quale giorno scegliamo?",
-                multiple_answers=False,
-                duration=TIEBREAK_POLL_DURATION,
-                poll_type="tiebreak",
-            )
+        tied = await close_poll(bot)
+        if len(tied) == 1:
+            await send_winner_message(bot, tied[0])
+        elif len(tied) > 1:
+            print(f"Ex aequo: {tied} → avvio secondo sondaggio")
+            await create_poll(bot, tied, "Ex aequo: quale giorno scegliamo?",
+                              multiple_answers=False, poll_type="tiebreak")
+        else:
+            print("Nessun voto — nessuna azione")
 
     elif MODE == "close_tiebreak":
-        tied_options = await close_poll(bot)
-
-        if len(tied_options) == 1:
-            await send_winner_message(bot, tied_options[0])
+        if not os.path.exists(POLL_FILE):
+            print("Nessun tiebreak attivo — skip")
+            return
+        with open(POLL_FILE) as f:
+            data = json.load(f)
+        if data.get("poll_type") != "tiebreak":
+            print("Nessun tiebreak attivo — skip")
+            return
+        tied = await close_poll(bot)
+        if tied:
+            await send_winner_message(bot, tied[0])
 
 
 if __name__ == "__main__":
