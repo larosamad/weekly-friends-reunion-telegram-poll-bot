@@ -39,13 +39,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Ripristina poll_info.json dalla cache (se esiste)
-      - name: Restore poll info
-        uses: actions/cache/restore@v4
-        with:
-          path: poll_info.json
-          key: poll-info
-
       - name: Decide mode (schedule)
         if: github.event_name == 'schedule'
         run: |
@@ -54,9 +47,9 @@ jobs:
           echo "Ora italiana: giorno=$IT_DAY ora=$IT_HH"
 
           if   [ "$IT_DAY" = "7" ]; then
-            echo "MODE=start"        >> $GITHUB_ENV
+            echo "MODE=start"          >> $GITHUB_ENV
           elif [ "$IT_DAY" = "1" ] && [ "$IT_HH" -lt "12" ]; then
-            echo "MODE=close_first"  >> $GITHUB_ENV
+            echo "MODE=close_first"    >> $GITHUB_ENV
           elif [ "$IT_DAY" = "1" ] && [ "$IT_HH" -ge "12" ]; then
             echo "MODE=close_tiebreak" >> $GITHUB_ENV
           fi
@@ -68,7 +61,7 @@ jobs:
       - name: Debug
         run: |
           echo "MODE=$MODE"
-          echo "poll_info.json exists: $(test -f poll_info.json && cat poll_info.json || echo 'NO')"
+          echo "poll_info.json: $(test -f poll_info.json && cat poll_info.json || echo 'non esiste')"
 
       - uses: actions/setup-python@v5
         with:
@@ -84,10 +77,12 @@ jobs:
           MODE:      ${{ env.MODE }}
         run: python bot.py
 
-      # Salva poll_info.json nella cache dopo start e close_first
       - name: Save poll info
         if: env.MODE == 'start' || env.MODE == 'close_first'
-        uses: actions/cache/save@v4
-        with:
-          path: poll_info.json
-          key: poll-info
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git fetch origin main
+          git add poll_info.json
+          git commit -m "Save poll info [skip ci]" || echo "No changes"
+          git push
