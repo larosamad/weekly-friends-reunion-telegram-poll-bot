@@ -71,6 +71,12 @@ async def close_poll(bot):
     return tied
 
 
+async def delete_poll_info():
+    if os.path.exists(POLL_FILE):
+        os.remove(POLL_FILE)
+        print("Removed poll info file")
+
+
 async def main():
     bot = Bot(BOT_TOKEN)
 
@@ -82,12 +88,14 @@ async def main():
         tied = await close_poll(bot)
         if len(tied) == 1:
             await send_winner_message(bot, tied[0])
+            await delete_poll_info()
         elif len(tied) > 1:
             print(f"Ex aequo: {tied} → avvio secondo sondaggio")
             await create_poll(bot, tied, "Ex aequo: quale giorno scegliamo?",
                               multiple_answers=False, poll_type="tiebreak")
         else:
             print("Nessun voto — nessuna azione")
+            await delete_poll_info()
 
     elif MODE == "close_tiebreak":
         if not os.path.exists(POLL_FILE):
@@ -101,6 +109,7 @@ async def main():
         tied = await close_poll(bot)
         if tied:
             await send_winner_message(bot, tied[0])
+        await delete_poll_info()
 
 
 if __name__ == "__main__":

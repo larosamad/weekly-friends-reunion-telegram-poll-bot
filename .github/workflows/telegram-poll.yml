@@ -82,7 +82,11 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git fetch origin main
-          git add poll_info.json
+          git pull --rebase origin main
+          if [ -f poll_info.json ]; then
+            git add poll_info.json
+          else
+            git rm --ignore-unmatch poll_info.json || true
+          fi
           git commit -m "Save poll info [skip ci]" || echo "No changes"
-          git push
+          git push origin main
