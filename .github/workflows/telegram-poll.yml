@@ -73,8 +73,8 @@ jobs:
       - name: Run bot
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          CHAT_ID:   ${{ secrets.CHAT_ID }}
-          MODE:      ${{ env.MODE }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          MODE: ${{ env.MODE }}
         run: python bot.py
 
       - name: Save poll info
