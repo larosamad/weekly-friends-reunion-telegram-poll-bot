@@ -4,19 +4,16 @@ on:
   schedule:
     # Domenica — start
     # UTC+1 inverno: 11:00 IT = 10:00 UTC
-    # UTC+2 estate:  12:00 IT = 10:00 UTC
+    # UTC+2 estate: 12:00 IT = 10:00 UTC
     - cron: "0 10 * * 0"
-
     # Lunedì mattina — close_first (22h dopo il start)
     # UTC+1 inverno: 09:00 IT = 08:00 UTC
-    # UTC+2 estate:  10:00 IT = 08:00 UTC
+    # UTC+2 estate: 10:00 IT = 08:00 UTC
     - cron: "0 8 * * 1"
-
     # Lunedì pomeriggio — close_tiebreak (8h dopo close_first)
     # UTC+1 inverno: 17:00 IT = 16:00 UTC
-    # UTC+2 estate:  18:00 IT = 16:00 UTC
+    # UTC+2 estate: 18:00 IT = 16:00 UTC
     - cron: "0 16 * * 1"
-
   workflow_dispatch:
     inputs:
       mode:
@@ -32,14 +29,22 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: telegram-poll
+  cancel-in-progress: false
+
 jobs:
   poll:
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
     steps:
       - uses: actions/checkout@v4
+        with:
+          # fetch-depth: 0 evita problemi di rebase/push su clone shallow
+          # quando ci sono più run ravvicinati (es. close_first + close_tiebreak)
+          fetch-depth: 0
+          persist-credentials: true
 
       - name: Decide mode (schedule)
         if: github.event_name == 'schedule'
@@ -47,32 +52,45 @@ jobs:
           IT_DAY=$(TZ="Europe/Rome" date +"%u")
           IT_HH=$(TZ="Europe/Rome" date +"%H")
           echo "Ora italiana: giorno=$IT_DAY ora=$IT_HH"
-
-          if   [ "$IT_DAY" = "7" ]; then
-            echo "MODE=start"          >> $GITHUB_ENV
+          if [ "$IT_DAY" = "7" ]; then
+            echo "MODE=start" >> "$GITHUB_ENV"
           elif [ "$IT_DAY" = "1" ] && [ "$IT_HH" -lt "12" ]; then
-            echo "MODE=close_first"    >> $GITHUB_ENV
+            echo "MODE=close_first" >> "$GITHUB_ENV"
           elif [ "$IT_DAY" = "1" ] && [ "$IT_HH" -ge "12" ]; then
-            echo "MODE=close_tiebreak" >> $GITHUB_ENV
+            echo "MODE=close_tiebreak" >> "$GITHUB_ENV"
+          else
+            echo "Nessuna modalità corrisponde a questo orario, esco senza fare nulla."
+            echo "MODE=" >> "$GITHUB_ENV"
           fi
 
       - name: Set mode (manual)
         if: github.event_name == 'workflow_dispatch'
-        run: echo "MODE=${{ inputs.mode }}" >> $GITHUB_ENV
+        run: echo "MODE=${{ inputs.mode }}" >> "$GITHUB_ENV"
+
+      - name: Skip if no mode
+        if: env.MODE == ''
+        run: |
+          echo "MODE non impostato: nessuna azione da eseguire per questo trigger."
+          exit 0
 
       - name: Debug
+        if: env.MODE != ''
         run: |
           echo "MODE=$MODE"
           echo "poll_info.json: $(test -f poll_info.json && cat poll_info.json || echo 'non esiste')"
 
       - uses: actions/setup-python@v5
+        if: env.MODE != ''
         with:
           python-version: "3.11"
+          cache: "pip"
 
       - name: Install dependencies
-        run: pip install python-telegram-bot
+        if: env.MODE != ''
+        run: pip install -r requirements.txt
 
       - name: Run bot
+        if: env.MODE != ''
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
@@ -82,13 +100,37 @@ jobs:
       - name: Save poll info
         if: env.MODE == 'start' || env.MODE == 'close_first'
         run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git pull --rebase origin main
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
           if [ -f poll_info.json ]; then
             git add poll_info.json
           else
-            git rm --ignore-unmatch poll_info.json || true
+            git rm --ignore-unmatch poll_info.json
           fi
-          git commit -m "Save poll info [skip ci]" || echo "No changes"
-          git push origin main
+
+          if git diff --cached --quiet; then
+            echo "Nessuna modifica da salvare."
+            exit 0
+          fi
+
+          git commit -m "Save poll info [skip ci]"
+
+          # Riprova il push fino a 5 volte in caso di run concorrenti,
+          # rifacendo il rebase sull'ultima versione del branch ogni volta.
+          for i in 1 2 3 4 5; do
+            git fetch origin main
+            git rebase origin/main && break
+            echo "Rebase fallito, tentativo $i/5..."
+            git rebase --abort || true
+            sleep 3
+          done
+
+          if git push origin HEAD:main; then
+            echo "Push riuscito."
+          else
+            echo "::error::git push fallito con permessi insufficienti o conflitto irrisolvibile."
+            echo "::error::Verifica Settings -> Actions -> General -> Workflow permissions = 'Read and write permissions'."
+            exit 1
+          fi
