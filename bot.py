@@ -3,9 +3,20 @@ import json
 import asyncio
 from telegram import Bot, InputPollOption
 
-BOT_TOKEN = os.getenv("BOT_TOKEN").strip()
-CHAT_ID   = int(os.getenv("CHAT_ID").strip())
-MODE      = os.getenv("MODE").strip()
+
+def get_env(name: str) -> str:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        raise RuntimeError(
+            f"Variabile d'ambiente '{name}' mancante o vuota. "
+            f"Controlla i GitHub Secrets (BOT_TOKEN, CHAT_ID) e il MODE passato dal workflow."
+        )
+    return value.strip()
+
+
+BOT_TOKEN = get_env("BOT_TOKEN")
+CHAT_ID = int(get_env("CHAT_ID"))
+MODE = get_env("MODE")
 
 OPTIONS = [
     "Non posso",
@@ -19,6 +30,7 @@ OPTIONS = [
     "Domenica pomeriggio",
     "Domenica sera",
 ]
+
 EXCLUDED_OPTION = "Non posso"
 POLL_FILE = "poll_info.json"
 
@@ -81,8 +93,10 @@ async def main():
     bot = Bot(BOT_TOKEN)
 
     if MODE == "start":
-        await create_poll(bot, OPTIONS, "Che giorno preferite?",
-                          multiple_answers=True, poll_type="first")
+        await create_poll(
+            bot, OPTIONS, "Che giorno preferite?",
+            multiple_answers=True, poll_type="first",
+        )
 
     elif MODE == "close_first":
         tied = await close_poll(bot)
@@ -91,8 +105,10 @@ async def main():
             await delete_poll_info()
         elif len(tied) > 1:
             print(f"Ex aequo: {tied} → avvio secondo sondaggio")
-            await create_poll(bot, tied, "Ex aequo: quale giorno scegliamo?",
-                              multiple_answers=False, poll_type="tiebreak")
+            await create_poll(
+                bot, tied, "Ex aequo: quale giorno scegliamo?",
+                multiple_answers=False, poll_type="tiebreak",
+            )
         else:
             print("Nessun voto — nessuna azione")
             await delete_poll_info()
@@ -109,7 +125,10 @@ async def main():
         tied = await close_poll(bot)
         if tied:
             await send_winner_message(bot, tied[0])
-        await delete_poll_info()
+            await delete_poll_info()
+
+    else:
+        raise RuntimeError(f"MODE '{MODE}' non riconosciuto (atteso: start / close_first / close_tiebreak)")
 
 
 if __name__ == "__main__":
