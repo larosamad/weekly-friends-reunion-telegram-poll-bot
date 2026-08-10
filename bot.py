@@ -78,9 +78,9 @@ async def close_poll(bot):
         return []
 
     max_votes = max(o.voter_count for o in valid)
-    tied = [o.text for o in valid if o.voter_count == max_votes]
-    print(f"In parità ({max_votes} voti): {tied}")
-    return tied
+    tied_opts = [o for o in valid if o.voter_count == max_votes]
+    print(f"In parità ({max_votes} voti): {[o.text for o in tied_opts]}")
+    return tied_opts
 
 
 async def delete_poll_info():
@@ -101,14 +101,20 @@ async def main():
     elif MODE == "close_first":
         tied = await close_poll(bot)
         if len(tied) == 1:
-            await send_winner_message(bot, tied[0])
+            await send_winner_message(bot, tied[0].text)
             await delete_poll_info()
         elif len(tied) > 1:
-            print(f"Ex aequo: {tied} → avvio secondo sondaggio")
-            await create_poll(
-                bot, tied, "Ex aequo: quale giorno scegliamo?",
-                multiple_answers=False, poll_type="tiebreak",
-            )
+            # Avvio secondo sondaggio solo se il numero di voti per le opzioni in ex aequo
+            # è maggiore di 2 (ossia partecipazione sufficiente).
+            if tied[0].voter_count > 2:
+                print(f"Ex aequo: {[o.text for o in tied]} → avvio secondo sondaggio")
+                await create_poll(
+                    bot, [o.text for o in tied], "Ex aequo: quale giorno scegliamo?",
+                    multiple_answers=False, poll_type="tiebreak",
+                )
+            else:
+                print(f"Ex aequo con partecipazione insufficiente ({tied[0].voter_count} voti) — nessuna azione")
+                await delete_poll_info()
         else:
             print("Nessun voto — nessuna azione")
             await delete_poll_info()
@@ -124,7 +130,7 @@ async def main():
             return
         tied = await close_poll(bot)
         if tied:
-            await send_winner_message(bot, tied[0])
+            await send_winner_message(bot, tied[0].text)
             await delete_poll_info()
 
     else:
