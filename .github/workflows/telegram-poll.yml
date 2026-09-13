@@ -6,14 +6,17 @@ on:
     # UTC+1 inverno: 11:00 IT = 10:00 UTC
     # UTC+2 estate: 12:00 IT = 10:00 UTC
     - cron: "0 10 * * 0"
-    # Lunedì mattina — close_first (22h dopo il start)
+
+    # Lunedì mattina — close_first
     # UTC+1 inverno: 09:00 IT = 08:00 UTC
     # UTC+2 estate: 10:00 IT = 08:00 UTC
     - cron: "0 8 * * 1"
-    # Lunedì pomeriggio — close_tiebreak (8h dopo close_first)
+
+    # Lunedì pomeriggio — close_tiebreak
     # UTC+1 inverno: 17:00 IT = 16:00 UTC
     # UTC+2 estate: 18:00 IT = 16:00 UTC
     - cron: "0 16 * * 1"
+
   workflow_dispatch:
     inputs:
       mode:
@@ -36,36 +39,57 @@ concurrency:
 jobs:
   poll:
     runs-on: ubuntu-latest
+
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
     steps:
       - uses: actions/checkout@v4
         with:
           # fetch-depth: 0 evita problemi di rebase/push su clone shallow
-          # quando ci sono più run ravvicinati (es. close_first + close_tiebreak)
+          # quando ci sono più run ravvicinati
           fetch-depth: 0
           persist-credentials: true
 
+      # Per i run automatici NON guardiamo l'ora effettiva del runner.
+      # Usiamo direttamente il cron che ha generato l'evento.
+      #
+      # Questo evita che un run GitHub partito in ritardo venga
+      # erroneamente interpretato come close_tiebreak invece di close_first.
       - name: Decide mode (schedule)
         if: github.event_name == 'schedule'
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
         run: |
-          IT_DAY=$(TZ="Europe/Rome" date +"%u")
-          IT_HH=$(TZ="Europe/Rome" date +"%H")
-          echo "Ora italiana: giorno=$IT_DAY ora=$IT_HH"
-          if [ "$IT_DAY" = "7" ]; then
-            echo "MODE=start" >> "$GITHUB_ENV"
-          elif [ "$IT_DAY" = "1" ] && [ "$IT_HH" -lt "12" ]; then
-            echo "MODE=close_first" >> "$GITHUB_ENV"
-          elif [ "$IT_DAY" = "1" ] && [ "$IT_HH" -ge "12" ]; then
-            echo "MODE=close_tiebreak" >> "$GITHUB_ENV"
-          else
-            echo "Nessuna modalità corrisponde a questo orario, esco senza fare nulla."
-            echo "MODE=" >> "$GITHUB_ENV"
-          fi
+          echo "Cron che ha attivato il workflow: $SCHEDULE"
+
+          case "$SCHEDULE" in
+            "0 10 * * 0")
+              echo "MODE=start" >> "$GITHUB_ENV"
+              echo "Modalità selezionata: start"
+              ;;
+
+            "0 8 * * 1")
+              echo "MODE=close_first" >> "$GITHUB_ENV"
+              echo "Modalità selezionata: close_first"
+              ;;
+
+            "0 16 * * 1")
+              echo "MODE=close_tiebreak" >> "$GITHUB_ENV"
+              echo "Modalità selezionata: close_tiebreak"
+              ;;
+
+            *)
+              echo "::warning::Cron non riconosciuto: $SCHEDULE"
+              echo "MODE=" >> "$GITHUB_ENV"
+              ;;
+          esac
 
       - name: Set mode (manual)
         if: github.event_name == 'workflow_dispatch'
-        run: echo "MODE=${{ inputs.mode }}" >> "$GITHUB_ENV"
+        run: |
+          echo "MODE=${{ inputs.mode }}" >> "$GITHUB_ENV"
+          echo "Modalità manuale selezionata: ${{ inputs.mode }}"
 
       - name: Skip if no mode
         if: env.MODE == ''
@@ -77,6 +101,8 @@ jobs:
         if: env.MODE != ''
         run: |
           echo "MODE=$MODE"
+          echo "Evento GitHub: ${{ github.event_name }}"
+          echo "Cron evento: ${{ github.event.schedule }}"
           echo "poll_info.json: $(test -f poll_info.json && cat poll_info.json || echo 'non esiste')"
 
       - uses: actions/setup-python@v5
@@ -101,6 +127,7 @@ jobs:
         if: env.MODE == 'start' || env.MODE == 'close_first'
         run: |
           set -e
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
@@ -117,11 +144,16 @@ jobs:
 
           git commit -m "Save poll info [skip ci]"
 
-          # Riprova il push fino a 5 volte in caso di run concorrenti,
-          # rifacendo il rebase sull'ultima versione del branch ogni volta.
+          # Riprova il rebase fino a 5 volte nel caso in cui
+          # il branch main sia cambiato nel frattempo.
           for i in 1 2 3 4 5; do
             git fetch origin main
-            git rebase origin/main && break
+
+            if git rebase origin/main; then
+              echo "Rebase riuscito."
+              break
+            fi
+
             echo "Rebase fallito, tentativo $i/5..."
             git rebase --abort || true
             sleep 3
