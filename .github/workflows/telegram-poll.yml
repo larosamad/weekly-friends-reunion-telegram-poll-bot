@@ -2,20 +2,22 @@ name: Telegram weekly poll
 
 on:
   schedule:
-    # Domenica — start
-    # UTC+1 inverno: 11:00 IT = 10:00 UTC
-    # UTC+2 estate: 12:00 IT = 10:00 UTC
-    - cron: "0 10 * * 0"
+    # START
+    # Domenica ore 11:07 italiane.
+    # I tentativi successivi servono come backup nel caso
+    # GitHub ritardi o salti uno degli schedule.
+    - cron: "7,22,37,52 11 * * 0"
+      timezone: "Europe/Rome"
 
-    # Lunedì mattina — close_first
-    # UTC+1 inverno: 09:00 IT = 08:00 UTC
-    # UTC+2 estate: 10:00 IT = 08:00 UTC
-    - cron: "0 8 * * 1"
+    # CLOSE FIRST
+    # Lunedì dalle 09:07 alle 09:52 italiane.
+    - cron: "7,22,37,52 9 * * 1"
+      timezone: "Europe/Rome"
 
-    # Lunedì pomeriggio — close_tiebreak
-    # UTC+1 inverno: 17:00 IT = 16:00 UTC
-    # UTC+2 estate: 18:00 IT = 16:00 UTC
-    - cron: "0 16 * * 1"
+    # CLOSE TIEBREAK
+    # Lunedì dalle 17:07 alle 17:52 italiane.
+    - cron: "7,22,37,52 17 * * 1"
+      timezone: "Europe/Rome"
 
   workflow_dispatch:
     inputs:
@@ -46,64 +48,174 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # fetch-depth: 0 evita problemi di rebase/push su clone shallow
-          # quando ci sono più run ravvicinati
           fetch-depth: 0
           persist-credentials: true
 
-      # Per i run automatici NON guardiamo l'ora effettiva del runner.
-      # Usiamo direttamente il cron che ha generato l'evento.
+      # ---------------------------------------------------------
+      # Decide MODE in base al cron che ha generato il workflow.
       #
-      # Questo evita che un run GitHub partito in ritardo venga
-      # erroneamente interpretato come close_tiebreak invece di close_first.
+      # NON viene usata l'ora effettiva del runner.
+      # Quindi anche se GitHub esegue il job molto in ritardo,
+      # il MODE rimane quello corretto.
+      # ---------------------------------------------------------
+
       - name: Decide mode (schedule)
         if: github.event_name == 'schedule'
         env:
           SCHEDULE: ${{ github.event.schedule }}
         run: |
-          echo "Cron che ha attivato il workflow: $SCHEDULE"
+          echo "Schedule ricevuto: $SCHEDULE"
 
           case "$SCHEDULE" in
-            "0 10 * * 0")
+
+            "7,22,37,52 11 * * 0")
               echo "MODE=start" >> "$GITHUB_ENV"
-              echo "Modalità selezionata: start"
+              echo "MODE selezionato: start"
               ;;
 
-            "0 8 * * 1")
+            "7,22,37,52 9 * * 1")
               echo "MODE=close_first" >> "$GITHUB_ENV"
-              echo "Modalità selezionata: close_first"
+              echo "MODE selezionato: close_first"
               ;;
 
-            "0 16 * * 1")
+            "7,22,37,52 17 * * 1")
               echo "MODE=close_tiebreak" >> "$GITHUB_ENV"
-              echo "Modalità selezionata: close_tiebreak"
+              echo "MODE selezionato: close_tiebreak"
               ;;
 
             *)
-              echo "::warning::Cron non riconosciuto: $SCHEDULE"
+              echo "::warning::Schedule sconosciuto: $SCHEDULE"
               echo "MODE=" >> "$GITHUB_ENV"
               ;;
           esac
+
+      # ---------------------------------------------------------
+      # Avvio manuale
+      # ---------------------------------------------------------
 
       - name: Set mode (manual)
         if: github.event_name == 'workflow_dispatch'
         run: |
           echo "MODE=${{ inputs.mode }}" >> "$GITHUB_ENV"
-          echo "Modalità manuale selezionata: ${{ inputs.mode }}"
+          echo "Modalità manuale: ${{ inputs.mode }}"
 
-      - name: Skip if no mode
-        if: env.MODE == ''
+      # ---------------------------------------------------------
+      # Protezione contro esecuzioni duplicate.
+      #
+      # START:
+      # se esiste già un poll attivo, non crearne un altro.
+      #
+      # CLOSE_FIRST:
+      # viene eseguito soltanto se poll_type == first.
+      #
+      # CLOSE_TIEBREAK:
+      # viene eseguito soltanto se poll_type == tiebreak.
+      # ---------------------------------------------------------
+
+      - name: Check poll state
+        if: env.MODE != ''
         run: |
-          echo "MODE non impostato: nessuna azione da eseguire per questo trigger."
-          exit 0
+          echo "MODE richiesto: $MODE"
+
+          if [ -f poll_info.json ]; then
+            echo "poll_info.json trovato:"
+            cat poll_info.json
+
+            POLL_TYPE=$(python -c "import json; print(json.load(open('poll_info.json')).get('poll_type', ''))")
+
+            echo "POLL_TYPE=$POLL_TYPE"
+          else
+            echo "poll_info.json non esiste"
+            POLL_TYPE=""
+          fi
+
+
+          # ----------------------------
+          # START
+          # ----------------------------
+
+          if [ "$MODE" = "start" ]; then
+
+            if [ -f poll_info.json ]; then
+              echo "Un sondaggio risulta già attivo."
+              echo "Skip del tentativo START duplicato."
+              echo "MODE=" >> "$GITHUB_ENV"
+            else
+              echo "Nessun sondaggio attivo: START autorizzato."
+            fi
+
+          fi
+
+
+          # ----------------------------
+          # CLOSE FIRST
+          # ----------------------------
+
+          if [ "$MODE" = "close_first" ]; then
+
+            if [ ! -f poll_info.json ]; then
+              echo "Nessun sondaggio attivo."
+              echo "Skip CLOSE_FIRST."
+              echo "MODE=" >> "$GITHUB_ENV"
+
+            elif [ "$POLL_TYPE" != "first" ]; then
+              echo "Il sondaggio non è di tipo first."
+              echo "POLL_TYPE=$POLL_TYPE"
+              echo "Skip CLOSE_FIRST."
+              echo "MODE=" >> "$GITHUB_ENV"
+
+            else
+              echo "Sondaggio first trovato: CLOSE_FIRST autorizzato."
+            fi
+
+          fi
+
+
+          # ----------------------------
+          # CLOSE TIEBREAK
+          # ----------------------------
+
+          if [ "$MODE" = "close_tiebreak" ]; then
+
+            if [ ! -f poll_info.json ]; then
+              echo "Nessun tiebreak attivo."
+              echo "Skip CLOSE_TIEBREAK."
+              echo "MODE=" >> "$GITHUB_ENV"
+
+            elif [ "$POLL_TYPE" != "tiebreak" ]; then
+              echo "Il sondaggio corrente non è un tiebreak."
+              echo "POLL_TYPE=$POLL_TYPE"
+              echo "Skip CLOSE_TIEBREAK."
+              echo "MODE=" >> "$GITHUB_ENV"
+
+            else
+              echo "Tiebreak trovato: CLOSE_TIEBREAK autorizzato."
+            fi
+
+          fi
+
+      # ---------------------------------------------------------
+      # Debug
+      # ---------------------------------------------------------
 
       - name: Debug
         if: env.MODE != ''
         run: |
+          echo "============================"
           echo "MODE=$MODE"
-          echo "Evento GitHub: ${{ github.event_name }}"
-          echo "Cron evento: ${{ github.event.schedule }}"
-          echo "poll_info.json: $(test -f poll_info.json && cat poll_info.json || echo 'non esiste')"
+          echo "EVENT=${{ github.event_name }}"
+          echo "SCHEDULE=${{ github.event.schedule }}"
+          echo "============================"
+
+          if [ -f poll_info.json ]; then
+            cat poll_info.json
+          else
+            echo "poll_info.json non esiste"
+          fi
+
+      # ---------------------------------------------------------
+      # Python
+      # ---------------------------------------------------------
 
       - uses: actions/setup-python@v5
         if: env.MODE != ''
@@ -115,6 +227,10 @@ jobs:
         if: env.MODE != ''
         run: pip install -r requirements.txt
 
+      # ---------------------------------------------------------
+      # Bot
+      # ---------------------------------------------------------
+
       - name: Run bot
         if: env.MODE != ''
         env:
@@ -123,8 +239,16 @@ jobs:
           MODE: ${{ env.MODE }}
         run: python bot.py
 
+      # ---------------------------------------------------------
+      # Persistenza poll_info.json
+      #
+      # IMPORTANTE:
+      # salviamo lo stato anche dopo close_tiebreak,
+      # perché bot.py può eliminare poll_info.json.
+      # ---------------------------------------------------------
+
       - name: Save poll info
-        if: env.MODE == 'start' || env.MODE == 'close_first'
+        if: env.MODE != ''
         run: |
           set -e
 
@@ -138,31 +262,40 @@ jobs:
           fi
 
           if git diff --cached --quiet; then
-            echo "Nessuna modifica da salvare."
+            echo "Nessuna modifica a poll_info.json."
             exit 0
           fi
 
           git commit -m "Save poll info [skip ci]"
 
-          # Riprova il rebase fino a 5 volte nel caso in cui
-          # il branch main sia cambiato nel frattempo.
+          PUSH_OK=false
+
           for i in 1 2 3 4 5; do
+
+            echo "Tentativo push $i/5"
+
             git fetch origin main
 
-            if git rebase origin/main; then
-              echo "Rebase riuscito."
+            if ! git rebase origin/main; then
+              echo "Rebase fallito."
+              git rebase --abort || true
+              sleep 3
+              continue
+            fi
+
+            if git push origin HEAD:main; then
+              echo "Push riuscito."
+              PUSH_OK=true
               break
             fi
 
-            echo "Rebase fallito, tentativo $i/5..."
-            git rebase --abort || true
+            echo "Push fallito. Riprovo..."
             sleep 3
+
           done
 
-          if git push origin HEAD:main; then
-            echo "Push riuscito."
-          else
-            echo "::error::git push fallito con permessi insufficienti o conflitto irrisolvibile."
-            echo "::error::Verifica Settings -> Actions -> General -> Workflow permissions = 'Read and write permissions'."
+          if [ "$PUSH_OK" != "true" ]; then
+            echo "::error::Impossibile salvare poll_info.json dopo 5 tentativi."
+            echo "::error::Verifica Settings -> Actions -> General -> Workflow permissions."
             exit 1
           fi
