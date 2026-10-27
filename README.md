@@ -84,7 +84,7 @@ The workflow can be triggered manually with a specific mode:
 | File | Description |
 |------|-------------|
 | `bot.py` | Main bot logic |
-| `.github/workflows/poll.yml` | GitHub Actions workflow |
+| `.github/workflows/telegram-poll.yml` | GitHub Actions workflow |
 | `poll_info.json` | Auto-generated — stores the active poll ID between runs |
 | `requirements.txt` | Python dependencies |
 
@@ -93,4 +93,39 @@ The workflow can be triggered manually with a specific mode:
 `requirements.txt`:
 ```
 python-telegram-bot
+```
+
+## Configurazione dall’app Friends Reunion
+
+`bot_config.json` contiene le impostazioni modificabili dall’app. `config.py`
+le valida e `bot.py` le legge a ogni esecuzione. I valori iniziali mantengono
+le opzioni, le domande, il nome del gruppo e la soglia dello spareggio esistenti.
+
+| Campo | Uso |
+|---|---|
+| `OPTIONS` | Da 2 a 10 risposte, ciascuna da 1 a 100 caratteri |
+| `EXCLUDED_OPTION` | Risposta esclusa dalla vittoria; deve coincidere con una delle opzioni |
+| `MIN_TIEBREAK_VOTES` | Voti minimi per aprire lo spareggio in caso di parità |
+| `FIRST_POLL_QUESTION` | Domanda del primo sondaggio, massimo 300 caratteri |
+| `TIEBREAK_QUESTION` | Domanda dello spareggio, massimo 300 caratteri |
+| `GROUP_NAME` | Nome usato nel messaggio del vincitore, massimo 100 caratteri |
+
+Un nuovo fork include automaticamente `bot_config.json` e `config.py`.
+Per aggiornare una copia esistente usa **Sync fork → Update branch** su GitHub.
+Il bot deve ricevere anche il nuovo `bot.py`: aggiungere solo il JSON non basta.
+
+Nell’app usa il proprietario, il repository e il branch della tua copia.
+Il token GitHub deve includere quella copia con **Contents: Read and write**
+per caricare e salvare le impostazioni, e **Actions: Read and write** per avviare
+la prova. Il workflow rimane `telegram-poll.yml`.
+
+Non inserire credenziali nel JSON: `BOT_TOKEN` e `CHAT_ID` restano nei GitHub
+Secrets. Le modifiche alle impostazioni vengono lette alla prossima esecuzione;
+non riscrivono i messaggi Telegram già inviati. Lo stato del sondaggio continua
+a essere salvato dal workflow in `poll_info.json`.
+
+Test locali senza credenziali e senza inviare messaggi:
+
+```sh
+python3 -m unittest discover -s tests -v
 ```

@@ -2,6 +2,7 @@ import os
 import json
 import asyncio
 from telegram import Bot, InputPollOption
+from config import load_config
 
 
 def get_env(name: str) -> str:
@@ -18,20 +19,14 @@ BOT_TOKEN = get_env("BOT_TOKEN")
 CHAT_ID = int(get_env("CHAT_ID"))
 MODE = get_env("MODE")
 
-OPTIONS = [
-    "Non posso",
-    "Lunedì sera",
-    "Martedì sera",
-    "Mercoledì sera",
-    "Giovedì sera",
-    "Venerdì sera",
-    "Sabato pomeriggio",
-    "Sabato sera",
-    "Domenica pomeriggio",
-    "Domenica sera",
-]
-
-EXCLUDED_OPTION = "Non posso"
+# Riletta a ogni avvio del bot, anche dopo le modifiche salvate dall’app.
+CONFIG = load_config()
+OPTIONS = CONFIG["OPTIONS"]
+EXCLUDED_OPTION = CONFIG["EXCLUDED_OPTION"]
+MIN_TIEBREAK_VOTES = CONFIG["MIN_TIEBREAK_VOTES"]
+FIRST_POLL_QUESTION = CONFIG["FIRST_POLL_QUESTION"]
+TIEBREAK_QUESTION = CONFIG["TIEBREAK_QUESTION"]
+GROUP_NAME = CONFIG["GROUP_NAME"]
 POLL_FILE = "poll_info.json"
 
 
@@ -51,7 +46,7 @@ async def create_poll(bot, options, question, multiple_answers, poll_type):
 async def send_winner_message(bot, winner):
     await bot.send_message(
         chat_id=CHAT_ID,
-        text=f"Ciccini del {winner} palesatevi con la vostra id reaction e proponete eventuali film nei commenti",
+        text=f"{GROUP_NAME} del {winner} palesatevi con la vostra id reaction e proponete eventuali film nei commenti",
     )
     print(f"Messaggio vincitore inviato: {winner}")
 
@@ -94,7 +89,7 @@ async def main():
 
     if MODE == "start":
         await create_poll(
-            bot, OPTIONS, "Che giorno preferite?",
+            bot, OPTIONS, FIRST_POLL_QUESTION,
             multiple_answers=True, poll_type="first",
         )
 
@@ -104,12 +99,11 @@ async def main():
             await send_winner_message(bot, tied[0].text)
             await delete_poll_info()
         elif len(tied) > 1:
-            # Avvio secondo sondaggio solo se il numero di voti per le opzioni in ex aequo
-            # è maggiore di 2 (ossia partecipazione sufficiente).
-            if tied[0].voter_count > 2:
+            # La soglia viene configurata dall’app (valore iniziale: 3).
+            if tied[0].voter_count >= MIN_TIEBREAK_VOTES:
                 print(f"Ex aequo: {[o.text for o in tied]} → avvio secondo sondaggio")
                 await create_poll(
-                    bot, [o.text for o in tied], "Ex aequo: quale giorno scegliamo?",
+                    bot, [o.text for o in tied], TIEBREAK_QUESTION,
                     multiple_answers=False, poll_type="tiebreak",
                 )
             else:

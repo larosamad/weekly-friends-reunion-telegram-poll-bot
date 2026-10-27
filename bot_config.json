@@ -1,0 +1,19 @@
+{
+  "OPTIONS": [
+    "Non posso",
+    "Lunedì sera",
+    "Martedì sera",
+    "Mercoledì sera",
+    "Giovedì sera",
+    "Venerdì sera",
+    "Sabato pomeriggio",
+    "Sabato sera",
+    "Domenica pomeriggio",
+    "Domenica sera"
+  ],
+  "EXCLUDED_OPTION": "Non posso",
+  "MIN_TIEBREAK_VOTES": 3,
+  "FIRST_POLL_QUESTION": "Che giorno preferite?",
+  "TIEBREAK_QUESTION": "Ex aequo: quale giorno scegliamo?",
+  "GROUP_NAME": "Ciccini"
+}
