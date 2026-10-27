@@ -2,31 +2,17 @@ name: Telegram weekly poll
 
 on:
   schedule:
-    # START
-    # Domenica ore 11:07 italiane.
-    # I tentativi successivi servono come backup nel caso
-    # GitHub ritardi o salti uno degli schedule.
-    - cron: "7,22,37,52 11 * * 0"
-      timezone: "Europe/Rome"
-
-    # CLOSE FIRST
-    # Lunedì dalle 09:07 alle 09:52 italiane.
-    - cron: "7,22,37,52 9 * * 1"
-      timezone: "Europe/Rome"
-
-    # CLOSE TIEBREAK
-    # Lunedì dalle 17:07 alle 17:52 italiane.
-    - cron: "7,22,37,52 17 * * 1"
-      timezone: "Europe/Rome"
-
+    # Check saved settings every 15 minutes. GitHub may delay scheduled runs.
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
     inputs:
       mode:
-        description: "MODE da eseguire"
+        description: "Operazione (auto rispetta la programmazione salvata)"
         required: true
-        default: "start"
+        default: "auto"
         type: choice
         options:
+          - auto
           - start
           - close_first
           - close_tiebreak
@@ -41,261 +27,79 @@ concurrency:
 jobs:
   poll:
     runs-on: ubuntu-latest
-
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: true
 
-      # ---------------------------------------------------------
-      # Decide MODE in base al cron che ha generato il workflow.
-      #
-      # NON viene usata l'ora effettiva del runner.
-      # Quindi anche se GitHub esegue il job molto in ritardo,
-      # il MODE rimane quello corretto.
-      # ---------------------------------------------------------
-
-      - name: Decide mode (schedule)
-        if: github.event_name == 'schedule'
-        env:
-          SCHEDULE: ${{ github.event.schedule }}
-        run: |
-          echo "Schedule ricevuto: $SCHEDULE"
-
-          case "$SCHEDULE" in
-
-            "7,22,37,52 11 * * 0")
-              echo "MODE=start" >> "$GITHUB_ENV"
-              echo "MODE selezionato: start"
-              ;;
-
-            "7,22,37,52 9 * * 1")
-              echo "MODE=close_first" >> "$GITHUB_ENV"
-              echo "MODE selezionato: close_first"
-              ;;
-
-            "7,22,37,52 17 * * 1")
-              echo "MODE=close_tiebreak" >> "$GITHUB_ENV"
-              echo "MODE selezionato: close_tiebreak"
-              ;;
-
-            *)
-              echo "::warning::Schedule sconosciuto: $SCHEDULE"
-              echo "MODE=" >> "$GITHUB_ENV"
-              ;;
-          esac
-
-      # ---------------------------------------------------------
-      # Avvio manuale
-      # ---------------------------------------------------------
-
-      - name: Set mode (manual)
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          echo "MODE=${{ inputs.mode }}" >> "$GITHUB_ENV"
-          echo "Modalità manuale: ${{ inputs.mode }}"
-
-      # ---------------------------------------------------------
-      # Protezione contro esecuzioni duplicate.
-      #
-      # START:
-      # se esiste già un poll attivo, non crearne un altro.
-      #
-      # CLOSE_FIRST:
-      # viene eseguito soltanto se poll_type == first.
-      #
-      # CLOSE_TIEBREAK:
-      # viene eseguito soltanto se poll_type == tiebreak.
-      # ---------------------------------------------------------
-
-      - name: Check poll state
-        if: env.MODE != ''
-        run: |
-          echo "MODE richiesto: $MODE"
-
-          if [ -f poll_info.json ]; then
-            echo "poll_info.json trovato:"
-            cat poll_info.json
-
-            POLL_TYPE=$(python -c "import json; print(json.load(open('poll_info.json')).get('poll_type', ''))")
-
-            echo "POLL_TYPE=$POLL_TYPE"
-          else
-            echo "poll_info.json non esiste"
-            POLL_TYPE=""
-          fi
-
-
-          # ----------------------------
-          # START
-          # ----------------------------
-
-          if [ "$MODE" = "start" ]; then
-
-            if [ -f poll_info.json ]; then
-              echo "Un sondaggio risulta già attivo."
-              echo "Skip del tentativo START duplicato."
-              echo "MODE=" >> "$GITHUB_ENV"
-            else
-              echo "Nessun sondaggio attivo: START autorizzato."
-            fi
-
-          fi
-
-
-          # ----------------------------
-          # CLOSE FIRST
-          # ----------------------------
-
-          if [ "$MODE" = "close_first" ]; then
-
-            if [ ! -f poll_info.json ]; then
-              echo "Nessun sondaggio attivo."
-              echo "Skip CLOSE_FIRST."
-              echo "MODE=" >> "$GITHUB_ENV"
-
-            elif [ "$POLL_TYPE" != "first" ]; then
-              echo "Il sondaggio non è di tipo first."
-              echo "POLL_TYPE=$POLL_TYPE"
-              echo "Skip CLOSE_FIRST."
-              echo "MODE=" >> "$GITHUB_ENV"
-
-            else
-              echo "Sondaggio first trovato: CLOSE_FIRST autorizzato."
-            fi
-
-          fi
-
-
-          # ----------------------------
-          # CLOSE TIEBREAK
-          # ----------------------------
-
-          if [ "$MODE" = "close_tiebreak" ]; then
-
-            if [ ! -f poll_info.json ]; then
-              echo "Nessun tiebreak attivo."
-              echo "Skip CLOSE_TIEBREAK."
-              echo "MODE=" >> "$GITHUB_ENV"
-
-            elif [ "$POLL_TYPE" != "tiebreak" ]; then
-              echo "Il sondaggio corrente non è un tiebreak."
-              echo "POLL_TYPE=$POLL_TYPE"
-              echo "Skip CLOSE_TIEBREAK."
-              echo "MODE=" >> "$GITHUB_ENV"
-
-            else
-              echo "Tiebreak trovato: CLOSE_TIEBREAK autorizzato."
-            fi
-
-          fi
-
-      # ---------------------------------------------------------
-      # Debug
-      # ---------------------------------------------------------
-
-      - name: Debug
-        if: env.MODE != ''
-        run: |
-          echo "============================"
-          echo "MODE=$MODE"
-          echo "EVENT=${{ github.event_name }}"
-          echo "SCHEDULE=${{ github.event.schedule }}"
-          echo "============================"
-
-          if [ -f poll_info.json ]; then
-            cat poll_info.json
-          else
-            echo "poll_info.json non esiste"
-          fi
-
-      # ---------------------------------------------------------
-      # Python
-      # ---------------------------------------------------------
-
       - uses: actions/setup-python@v5
-        if: env.MODE != ''
         with:
           python-version: "3.11"
           cache: "pip"
 
-      - name: Install dependencies
-        if: env.MODE != ''
-        run: pip install -r requirements.txt
-
-      # ---------------------------------------------------------
-      # Bot
-      # ---------------------------------------------------------
-
-      - name: Run bot
-        if: env.MODE != ''
+      - name: Validate secrets
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
-          MODE: ${{ env.MODE }}
-        run: python bot.py
-
-      # ---------------------------------------------------------
-      # Persistenza poll_info.json
-      #
-      # IMPORTANTE:
-      # salviamo lo stato anche dopo close_tiebreak,
-      # perché bot.py può eliminare poll_info.json.
-      # ---------------------------------------------------------
-
-      - name: Save poll info
-        if: env.MODE != ''
         run: |
-          set -e
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          if [ -f poll_info.json ]; then
-            git add poll_info.json
-          else
-            git rm --ignore-unmatch poll_info.json
-          fi
-
-          if git diff --cached --quiet; then
-            echo "Nessuna modifica a poll_info.json."
-            exit 0
-          fi
-
-          git commit -m "Save poll info [skip ci]"
-
-          PUSH_OK=false
-
-          for i in 1 2 3 4 5; do
-
-            echo "Tentativo push $i/5"
-
-            git fetch origin main
-
-            if ! git rebase origin/main; then
-              echo "Rebase fallito."
-              git rebase --abort || true
-              sleep 3
-              continue
-            fi
-
-            if git push origin HEAD:main; then
-              echo "Push riuscito."
-              PUSH_OK=true
-              break
-            fi
-
-            echo "Push fallito. Riprovo..."
-            sleep 3
-
-          done
-
-          if [ "$PUSH_OK" != "true" ]; then
-            echo "::error::Impossibile salvare poll_info.json dopo 5 tentativi."
-            echo "::error::Verifica Settings -> Actions -> General -> Workflow permissions."
+          if [ -z "${BOT_TOKEN//[[:space:]]/}" ] || [ -z "${CHAT_ID//[[:space:]]/}" ]; then
+            echo "::error::Aggiungi BOT_TOKEN e CHAT_ID nei Secrets Actions di questa copia del repository."
             exit 1
           fi
+
+      - name: Check poll state and schedule
+        id: schedule
+        env:
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          REQUESTED_MODE: ${{ github.event_name == 'schedule' && 'auto' || inputs.mode }}
+        run: python scheduler.py
+
+      - name: Install dependencies
+        if: steps.schedule.outputs.mode != ''
+        run: pip install -r requirements.txt
+
+      - name: Run bot
+        if: steps.schedule.outputs.mode != ''
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          MODE: ${{ steps.schedule.outputs.mode }}
+        run: python bot.py
+
+      # Preserve an active poll even if a later Telegram operation fails.
+      - name: Save poll state
+        if: always() && steps.schedule.outcome == 'success'
+        env:
+          STATE_BRANCH: ${{ github.ref_name }}
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          for file in poll_info.json schedule_state.json; do
+            if [ -f "$file" ]; then
+              git add -- "$file"
+            else
+              git rm --ignore-unmatch -- "$file"
+            fi
+          done
+          if git diff --cached --quiet; then
+            echo "Nessuna modifica allo stato."
+            exit 0
+          fi
+          git commit -m "Save poll state [skip ci]"
+          for attempt in 1 2 3 4 5; do
+            git fetch origin "$STATE_BRANCH"
+            if git rebase "origin/$STATE_BRANCH"; then
+              if git push origin "HEAD:$STATE_BRANCH"; then
+                exit 0
+              fi
+            else
+              git rebase --abort || true
+            fi
+            sleep 3
+          done
+          echo "::error::Impossibile salvare lo stato. Controlla i permessi di scrittura di Actions."
+          exit 1

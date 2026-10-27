@@ -1,8 +1,11 @@
 import os
 import json
 import asyncio
+from datetime import timedelta
+from types import SimpleNamespace
 from telegram import Bot, InputPollOption
 from config import load_config
+from scheduler import prepare_mode, read_scoped, record_start, utc_now, write_json
 
 
 def get_env(name: str) -> str:
@@ -28,6 +31,8 @@ FIRST_POLL_QUESTION = CONFIG["FIRST_POLL_QUESTION"]
 TIEBREAK_QUESTION = CONFIG["TIEBREAK_QUESTION"]
 GROUP_NAME = CONFIG["GROUP_NAME"]
 POLL_FILE = "poll_info.json"
+SCHEDULE_STATE_FILE = "schedule_state.json"
+SCOPE = {"repository": os.getenv("GITHUB_REPOSITORY", "local"), "chat_id": str(CHAT_ID)}
 
 
 async def create_poll(bot, options, question, multiple_answers, poll_type):
@@ -38,8 +43,18 @@ async def create_poll(bot, options, question, multiple_answers, poll_type):
         is_anonymous=True,
         allows_multiple_answers=multiple_answers,
     )
-    with open(POLL_FILE, "w") as f:
-        json.dump({"message_id": message.message_id, "poll_type": poll_type}, f)
+    now = utc_now()
+    previous = read_scoped(POLL_FILE, SCOPE, allow_legacy=True) or {}
+    schedule = CONFIG["SCHEDULE"]
+    tiebreak_hours = previous.get("tiebreak_hours", schedule["tiebreak_hours"])
+    hours = schedule["first_poll_hours"] if poll_type == "first" else tiebreak_hours
+    write_json(POLL_FILE, {
+        "message_id": message.message_id, "poll_type": poll_type, "scope": SCOPE,
+        "created_at": now.isoformat(), "close_at": (now + timedelta(hours=hours)).isoformat(),
+        "tiebreak_hours": tiebreak_hours, "excluded_option": EXCLUDED_OPTION,
+    })
+    if poll_type == "first":
+        record_start(CONFIG, SCOPE, now, SCHEDULE_STATE_FILE)
     print(f"Sondaggio creato: poll_type={poll_type} message_id={message.message_id}")
 
 
@@ -60,11 +75,18 @@ async def close_poll(bot):
         data = json.load(f)
 
     print(f"Chiudo sondaggio message_id={data['message_id']}")
-    poll = await bot.stop_poll(chat_id=CHAT_ID, message_id=data["message_id"])
+    if "closed_options" in data:
+        options = [SimpleNamespace(**option) for option in data["closed_options"]]
+    else:
+        poll = await bot.stop_poll(chat_id=CHAT_ID, message_id=data["message_id"])
+        options = poll.options
+        # Retrying a failed follow-up must not try to stop an already closed poll.
+        data["closed_options"] = [{"text": option.text, "voter_count": option.voter_count} for option in options]
+        write_json(POLL_FILE, data)
 
     valid = [
-        opt for opt in poll.options
-        if opt.text != EXCLUDED_OPTION and opt.voter_count > 0
+        opt for opt in options
+        if opt.text != data.get("excluded_option", EXCLUDED_OPTION) and opt.voter_count > 0
     ]
     print(f"Opzioni valide: {[(o.text, o.voter_count) for o in valid]}")
 
@@ -85,15 +107,19 @@ async def delete_poll_info():
 
 
 async def main():
+    mode = prepare_mode(CONFIG, SCOPE, utc_now(), MODE, POLL_FILE, SCHEDULE_STATE_FILE)
+    if not mode:
+        print("Nessuna operazione necessaria: orario non raggiunto o sondaggio già gestito.")
+        return
     bot = Bot(BOT_TOKEN)
 
-    if MODE == "start":
+    if mode == "start":
         await create_poll(
             bot, OPTIONS, FIRST_POLL_QUESTION,
             multiple_answers=True, poll_type="first",
         )
 
-    elif MODE == "close_first":
+    elif mode == "close_first":
         tied = await close_poll(bot)
         if len(tied) == 1:
             await send_winner_message(bot, tied[0].text)
@@ -113,7 +139,7 @@ async def main():
             print("Nessun voto — nessuna azione")
             await delete_poll_info()
 
-    elif MODE == "close_tiebreak":
+    elif mode == "close_tiebreak":
         if not os.path.exists(POLL_FILE):
             print("Nessun tiebreak attivo — skip")
             return
@@ -125,7 +151,7 @@ async def main():
         tied = await close_poll(bot)
         if tied:
             await send_winner_message(bot, tied[0].text)
-            await delete_poll_info()
+        await delete_poll_info()
 
     else:
         raise RuntimeError(f"MODE '{MODE}' non riconosciuto (atteso: start / close_first / close_tiebreak)")
